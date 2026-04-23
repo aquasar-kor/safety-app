@@ -1,6 +1,6 @@
 streamlit
-pdfplumber
 pandas
 pytz
-pytesseract
+google-cloud-vision
 pdf2image
+pdfplumber
