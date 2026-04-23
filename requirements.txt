@@ -2,3 +2,5 @@ streamlit
 pdfplumber
 pandas
 pytz
+pytesseract
+pdf2image
