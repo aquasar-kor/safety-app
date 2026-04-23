@@ -5,6 +5,8 @@ import pandas as pd
 from datetime import datetime
 import pytz
 import re
+from pdf2image import convert_from_bytes
+import pytesseract
 
 # 1. KST 세팅 및 DB
 kst = pytz.timezone('Asia/Seoul')
@@ -28,7 +30,7 @@ company = st.text_input("협력업체명")
 name = st.text_input("작업자 성명")
 uploaded_file = st.file_uploader("4대 보험 가입내역 확인서 (PDF)", type="pdf")
 
-# 3. 검증 로직
+# 3. 검증 로직 (일반 추출 -> 실패 시 OCR 가동)
 if st.button("가입 여부 확인 및 출입 승인"):
     if company and name and uploaded_file:
         try:
@@ -40,21 +42,32 @@ if st.button("가입 여부 확인 및 출입 승인"):
                 clean_company = re.sub(r'[\s\W_]+', '', company)
                 clean_name = re.sub(r'[\s\W_]+', '', name)
                 
+                raw_text = ""
+                # [1차 시도] 일반 전자문서 PDF 텍스트 추출 (빠름)
                 with pdfplumber.open(uploaded_file) as pdf:
-                    raw_text = ""
                     for page in pdf.pages:
                         text = page.extract_text()
                         if text:
                             raw_text += text
                 
+                # [2차 시도] 백지상태(스캔본)로 판명되면 OCR 강제 가동
+                if not raw_text.strip():
+                    st.warning("🔄 스캔본(이미지) 문서가 감지되었습니다. 딥러닝 OCR(광학 문자 인식) 엔진을 가동합니다. (약 5~15초 소요)")
+                    file_bytes = uploaded_file.getvalue()
+                    images = convert_from_bytes(file_bytes)
+                    for img in images:
+                        # 한글 우선으로 이미지 속 글자를 강제로 뜯어냄
+                        text = pytesseract.image_to_string(img, lang='kor')
+                        raw_text += text
+                
                 clean_text = re.sub(r'[\s\W_]+', '', raw_text)
                 
-                # [여기가 핵심] 시스템이 읽어낸 글자 화면에 강제 출력
-                st.info("🔍 [디버그 모드] 시스템이 PDF에서 읽어낸 텍스트:")
+                # 디버그: OCR이 뜯어낸 글자 확인
+                st.info("🔍 [디버그 모드] 시스템이 최종적으로 읽어낸 텍스트:")
                 if clean_text:
                     st.code(clean_text)
                 else:
-                    st.error("🚨 텍스트 추출 실패: 읽어낸 글자가 0자입니다. (이미지 스캔본일 확률이 높습니다)")
+                    st.error("🚨 텍스트 추출 실패: 서류의 화질이 너무 낮아 OCR 엔진으로도 해독할 수 없습니다.")
                 
                 if clean_company in clean_text and clean_name in clean_text:
                     st.success(f"✅ {company} 소속 {name} 님의 4대 보험 가입 서류가 정상 확인되었습니다.")
@@ -63,7 +76,7 @@ if st.button("가입 여부 확인 및 출입 승인"):
                               (company, name, "승인 완료", now_str))
                     conn.commit()
                 else:
-                    st.error("❌ 서류에서 입력하신 업체명이나 작업자 성명을 찾을 수 없습니다. (위쪽 디버그 창의 추출된 텍스트와 비교해 보세요)")
+                    st.error("❌ 서류에서 입력하신 업체명이나 작업자 성명을 찾을 수 없습니다.")
         except Exception as e:
             st.error(f"파일을 읽는 중 오류가 발생했습니다: {e}")
     else:
